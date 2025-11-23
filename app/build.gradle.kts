@@ -49,7 +49,6 @@ dependencies {
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.ui.graphics)
     implementation(libs.androidx.compose.ui.tooling.preview)
-    implementation(libs.androidx.compose.material3)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
@@ -65,7 +64,6 @@ dependencies {
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")
     implementation("androidx.compose.ui:ui-tooling-preview")
-    implementation("androidx.compose.material3:material3")
 
     // 微软登录库 (MSAL)
     implementation("com.microsoft.identity.client:msal:5.1.0")
@@ -74,8 +72,26 @@ dependencies {
     implementation("com.squareup.retrofit2:retrofit:2.9.0")
     implementation("com.squareup.retrofit2:converter-gson:2.9.0")
 
-    // 谷歌图标库
-    implementation("androidx.compose.material:material-icons-extended:1.6.0")
 
     implementation("androidx.navigation:navigation-compose:2.7.6")
+
+    // --- Wear OS 核心库 ---
+    implementation("androidx.wear.compose:compose-material:1.3.0")
+    implementation("androidx.wear.compose:compose-foundation:1.3.0")
+    implementation("androidx.wear.compose:compose-navigation:1.3.0")
+    implementation("androidx.activity:activity-compose:1.8.2")
+    implementation("androidx.core:core-ktx:1.12.0")
+
+    // --- 微软登录 & 网络 (保持不变) ---
+    implementation("com.microsoft.identity.client:msal:5.1.0") {
+        exclude(group = "com.microsoft.device.display")
+    }
+    implementation("com.squareup.retrofit2:retrofit:2.9.0")
+    implementation("com.squareup.retrofit2:converter-gson:2.9.0")
+    implementation("com.google.code.gson:gson:2.10.1")
+
+    // 图标
+    implementation("androidx.compose.material:material-icons-extended:1.6.0")
+
+    implementation("androidx.compose.material:material:1.6.0")
 }
