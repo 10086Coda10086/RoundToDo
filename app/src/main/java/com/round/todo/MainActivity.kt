@@ -5,7 +5,6 @@ import android.app.DatePickerDialog
 import android.content.Context
 import android.os.Bundle
 import android.util.Log
-import android.view.HapticFeedbackConstants
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -29,7 +28,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.rotary.onRotaryScrollEvent
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -45,17 +43,17 @@ import androidx.wear.compose.foundation.lazy.ScalingLazyColumn
 import androidx.wear.compose.foundation.lazy.ScalingLazyListAnchorType
 import androidx.wear.compose.foundation.lazy.items
 import androidx.wear.compose.foundation.lazy.rememberScalingLazyListState
-import androidx.wear.compose.foundation.lazy.ScalingLazyColumnDefaults
 import androidx.wear.compose.material.*
 import androidx.wear.compose.navigation.SwipeDismissableNavHost
 import androidx.wear.compose.navigation.composable
 import androidx.wear.compose.navigation.rememberSwipeDismissableNavController
-// 工具库
+// 工具
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import com.microsoft.identity.client.*
 import com.microsoft.identity.client.exception.MsalException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import retrofit2.Retrofit
@@ -63,7 +61,7 @@ import retrofit2.converter.gson.GsonConverterFactory
 import retrofit2.http.*
 import java.util.Calendar
 
-// ================= 数据模型 (保持不变) =================
+// ================= 数据模型 (不变) =================
 data class TodoList(val id: String, val displayName: String)
 data class ListsResponse(val value: List<TodoList>)
 data class DateTimeTimeZone(val dateTime: String, val timeZone: String = "UTC")
@@ -75,7 +73,7 @@ data class PatternedRecurrence(val pattern: RecurrencePattern, val range: Recurr
 data class RecurrencePattern(val type: String, val interval: Int = 1)
 data class RecurrenceRange(val type: String = "noEnd", val startDate: String = "2024-01-01")
 
-// ================= API 接口 (保持不变) =================
+// ================= API (不变) =================
 interface MicrosoftTodoApi {
     @GET("v1.0/me/todo/lists") suspend fun getLists(@Header("Authorization") token: String): ListsResponse
     @GET("v1.0/me/todo/lists/{listId}/tasks") suspend fun getTasksInList(@Header("Authorization") token: String, @Path("listId") listId: String): TaskResponse
@@ -84,7 +82,7 @@ interface MicrosoftTodoApi {
     @DELETE("v1.0/me/todo/lists/{listId}/tasks/{taskId}") suspend fun deleteTask(@Header("Authorization") token: String, @Path("listId") listId: String, @Path("taskId") taskId: String)
 }
 
-// ================= 缓存管理 (保持不变) =================
+// ================= 缓存 (不变) =================
 object CacheManager {
     fun saveFolders(context: Context, list: List<TodoList>) = context.getSharedPreferences("todo_cache", Context.MODE_PRIVATE).edit().putString("folders", Gson().toJson(list)).apply()
     fun getFolders(context: Context): List<TodoList> = Gson().fromJson(context.getSharedPreferences("todo_cache", Context.MODE_PRIVATE).getString("folders", "[]"), object : TypeToken<List<TodoList>>() {}.type)
@@ -92,15 +90,42 @@ object CacheManager {
     fun getTasks(context: Context, listId: String): List<TodoTask> = Gson().fromJson(context.getSharedPreferences("todo_cache", Context.MODE_PRIVATE).getString("tasks_$listId", "[]"), object : TypeToken<List<TodoTask>>() {}.type)
 }
 
-// ================= 主 Activity =================
+// ================= Activity =================
 class MainActivity : ComponentActivity() {
     private var msalApp: ISingleAccountPublicClientApplication? = null
+    private var isInitFinished = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // 打印签名哈希 (保留，以备不时之需)
+        try {
+            val info = packageManager.getPackageInfo(packageName, android.content.pm.PackageManager.GET_SIGNATURES)
+            for (signature in info.signatures) {
+                val md = java.security.MessageDigest.getInstance("SHA")
+                md.update(signature.toByteArray())
+                val hash = android.util.Base64.encodeToString(md.digest(), android.util.Base64.NO_WRAP)
+                Log.e("MySignatureHash", "Hash: $hash")
+            }
+        } catch (e: Exception) {}
+
         PublicClientApplication.createSingleAccountPublicClientApplication(this, R.raw.auth_config, object : IPublicClientApplication.ISingleAccountApplicationCreatedListener {
-            override fun onCreated(app: ISingleAccountPublicClientApplication) { msalApp = app; setContent { WearRoundToDoApp(msalApp) } }
-            override fun onError(e: MsalException) { Log.e("Auth", "Error: ${e.message}") }
+            override fun onCreated(app: ISingleAccountPublicClientApplication) {
+                msalApp = app
+                checkInitAndLoadUI()
+            }
+            override fun onError(e: MsalException) {
+                Log.e("Auth", "Config Error: ${e.message}")
+                checkInitAndLoadUI()
+            }
         })
+    }
+
+    private fun checkInitAndLoadUI() {
+        if (!isInitFinished) {
+            isInitFinished = true
+            setContent { WearRoundToDoApp(msalApp) }
+        }
     }
 }
 
@@ -114,26 +139,34 @@ fun WearRoundToDoApp(msalApp: ISingleAccountPublicClientApplication?) {
     val retrofit = remember { Retrofit.Builder().baseUrl("https://graph.microsoft.com/").addConverterFactory(GsonConverterFactory.create()).build().create(MicrosoftTodoApi::class.java) }
 
     fun signIn() {
-        msalApp?.signIn(context as Activity, "", arrayOf("Tasks.Read", "Tasks.ReadWrite"), object : AuthenticationCallback {
-            override fun onSuccess(r: IAuthenticationResult) { token = r.accessToken; isLoggedIn = true }
-            override fun onError(e: MsalException) { Toast.makeText(context, "请在手机上确认", Toast.LENGTH_SHORT).show() }
-            override fun onCancel() {}
+        if (msalApp == null) {
+            Toast.makeText(context, "配置文件加载失败", Toast.LENGTH_SHORT).show()
+            return
+        }
+        Toast.makeText(context, "正在打开登录页...", Toast.LENGTH_SHORT).show()
+        msalApp.signIn(context as Activity, "", arrayOf("Tasks.Read", "Tasks.ReadWrite"), object : AuthenticationCallback {
+            override fun onSuccess(r: IAuthenticationResult) { token = r.accessToken; isLoggedIn = true; isCheckingLogin = false }
+            override fun onError(e: MsalException) { Toast.makeText(context, "登录失败", Toast.LENGTH_SHORT).show(); isCheckingLogin = false }
+            override fun onCancel() { isCheckingLogin = false }
         })
     }
 
     LaunchedEffect(Unit) {
-        msalApp?.getCurrentAccountAsync(object : ISingleAccountPublicClientApplication.CurrentAccountCallback {
-            override fun onAccountLoaded(activeAccount: IAccount?) {
-                if (activeAccount != null) {
-                    msalApp.acquireTokenSilentAsync(arrayOf("Tasks.Read", "Tasks.ReadWrite"), activeAccount.authority, object : SilentAuthenticationCallback {
-                        override fun onSuccess(r: IAuthenticationResult) { token = r.accessToken; isLoggedIn = true; isCheckingLogin = false }
-                        override fun onError(e: MsalException) { isCheckingLogin = false }
-                    })
-                } else { isCheckingLogin = false }
-            }
-            override fun onAccountChanged(p: IAccount?, c: IAccount?) {}
-            override fun onError(e: MsalException) { isCheckingLogin = false }
-        })
+        val timeoutJob = launch { delay(10000); if (isCheckingLogin) { isCheckingLogin = false } }
+        if (msalApp == null) { timeoutJob.cancel(); isCheckingLogin = false } else {
+            msalApp?.getCurrentAccountAsync(object : ISingleAccountPublicClientApplication.CurrentAccountCallback {
+                override fun onAccountLoaded(activeAccount: IAccount?) {
+                    if (activeAccount != null) {
+                        msalApp.acquireTokenSilentAsync(arrayOf("Tasks.Read", "Tasks.ReadWrite"), activeAccount.authority, object : SilentAuthenticationCallback {
+                            override fun onSuccess(r: IAuthenticationResult) { timeoutJob.cancel(); token = r.accessToken; isLoggedIn = true; isCheckingLogin = false }
+                            override fun onError(e: MsalException) { timeoutJob.cancel(); isCheckingLogin = false }
+                        })
+                    } else { timeoutJob.cancel(); isCheckingLogin = false }
+                }
+                override fun onAccountChanged(p: IAccount?, c: IAccount?) {}
+                override fun onError(e: MsalException) { timeoutJob.cancel(); isCheckingLogin = false }
+            })
+        }
     }
 
     androidx.wear.compose.material.MaterialTheme(colors = Colors(primary = Color(0xFF4767E8), surface = Color(0xFF202124), onSurface = Color.White)) {
@@ -144,7 +177,13 @@ fun WearRoundToDoApp(msalApp: ISingleAccountPublicClientApplication?) {
                 }
             } else if (!isLoggedIn) {
                 Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize().background(androidx.wear.compose.material.MaterialTheme.colors.background)) {
-                    Chip(onClick = { signIn() }, label = { Text("登录微软 ToDo") }, icon = { Icon(Icons.Default.Login, null) }, colors = ChipDefaults.primaryChipColors())
+                    Chip(
+                        onClick = { signIn() },
+                        label = { Text("登录 Microsoft ToDo") },
+                        icon = { Icon(Icons.Default.Login, null) },
+                        colors = ChipDefaults.primaryChipColors(),
+                        modifier = Modifier.fillMaxWidth(0.9f)
+                    )
                 }
             } else {
                 SwipeDismissableNavHost(navController = navController, startDestination = "folders") {
@@ -156,57 +195,17 @@ fun WearRoundToDoApp(msalApp: ISingleAccountPublicClientApplication?) {
     }
 }
 
-// ★★★ 核心修改：原生吸附 + 机械震动封装 ★★★
-@Composable
-fun SnapScalingLazyColumn(
-    modifier: Modifier = Modifier,
-    content: androidx.wear.compose.foundation.lazy.ScalingLazyListScope.() -> Unit
-) {
-    val listState = rememberScalingLazyListState()
-    val focusRequester = remember { FocusRequester() }
-    val coroutineScope = rememberCoroutineScope()
-    val view = LocalView.current
-
-    // 1. 请求焦点，确保能接收到滚轮事件
-    LaunchedEffect(Unit) { focusRequester.requestFocus() }
-
-    // 2. 核心：监听“中心Item”的变化来实现震动
-    // 只要中间那个任务变了，就震动一下。这比监听滚动距离更精准、更省电、更像机械齿轮。
-    LaunchedEffect(listState.centerItemIndex) {
-        view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
-    }
-
-    ScalingLazyColumn(
-        modifier = modifier
-            .fillMaxSize()
-            .background(androidx.wear.compose.material.MaterialTheme.colors.background)
-            .onRotaryScrollEvent {
-                coroutineScope.launch {
-                    // 3. 滚动速度控制：这里用 1.0f 保证跟手（如果觉得快可以改成 0.5f）
-                    // 关键在于下面那个 flingBehavior 会自动帮你停在任务上
-                    listState.scrollBy(it.verticalScrollPixels)
-                }
-                true
-            }
-            .focusRequester(focusRequester)
-            .focusable(),
-        state = listState,
-        anchorType = ScalingLazyListAnchorType.ItemStart,
-        // 4. 核心：开启原生吸附 (Snap)
-        // 这会让列表在停止滚动时，自动回弹对齐到最近的一个任务，
-        // 就像滚轮里有卡槽一样，非常舒服。
-        flingBehavior = ScalingLazyColumnDefaults.snapFlingBehavior(state = listState)
-    ) {
-        content()
-    }
-}
-
+// ★★★ 回滚点：恢复使用简单的 ScalingLazyColumn，不封装 Snap 组件 ★★★
 @Composable
 fun FolderListScreen(api: MicrosoftTodoApi, token: String, navController: androidx.navigation.NavController) {
     val context = LocalContext.current
+    val listState = rememberScalingLazyListState()
+    val focusRequester = remember { FocusRequester() }
+    val coroutineScope = rememberCoroutineScope()
     var folders by remember { mutableStateOf(CacheManager.getFolders(context)) }
 
     LaunchedEffect(Unit) {
+        focusRequester.requestFocus()
         try {
             val response = withContext(Dispatchers.IO) { api.getLists("Bearer $token") }
             folders = response.value
@@ -214,7 +213,22 @@ fun FolderListScreen(api: MicrosoftTodoApi, token: String, navController: androi
         } catch (e: Exception) {}
     }
 
-    SnapScalingLazyColumn {
+    ScalingLazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(androidx.wear.compose.material.MaterialTheme.colors.background)
+            .onRotaryScrollEvent {
+                coroutineScope.launch {
+                    // 简单的滚动，带 0.4 倍阻尼，稳定不卡顿
+                    listState.scrollBy(it.verticalScrollPixels * 0.4f)
+                }
+                true
+            }
+            .focusRequester(focusRequester)
+            .focusable(),
+        state = listState,
+        anchorType = ScalingLazyListAnchorType.ItemStart // 保持靠上对齐
+    ) {
         item { ListHeader { Text("我的清单") } }
         items(folders) { folder ->
             Chip(
@@ -233,6 +247,9 @@ fun FolderListScreen(api: MicrosoftTodoApi, token: String, navController: androi
 fun TaskListScreen(api: MicrosoftTodoApi, token: String, listId: String, listName: String, navController: androidx.navigation.NavController) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val listState = rememberScalingLazyListState()
+    val focusRequester = remember { FocusRequester() }
+
     var tasks by remember { mutableStateOf(CacheManager.getTasks(context, listId)) }
     var showAddDialog by remember { mutableStateOf(false) }
 
@@ -242,6 +259,7 @@ fun TaskListScreen(api: MicrosoftTodoApi, token: String, listId: String, listNam
                 val response = withContext(Dispatchers.IO) { api.getTasksInList("Bearer $token", listId) }
                 tasks = response.value
                 CacheManager.saveTasks(context, listId, tasks)
+                focusRequester.requestFocus()
             } catch (e: Exception) {}
         }
     }
@@ -259,7 +277,19 @@ fun TaskListScreen(api: MicrosoftTodoApi, token: String, listId: String, listNam
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        SnapScalingLazyColumn {
+        ScalingLazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(androidx.wear.compose.material.MaterialTheme.colors.background)
+                .onRotaryScrollEvent {
+                    scope.launch { listState.scrollBy(it.verticalScrollPixels * 0.4f) }
+                    true
+                }
+                .focusRequester(focusRequester)
+                .focusable(),
+            state = listState,
+            anchorType = ScalingLazyListAnchorType.ItemStart
+        ) {
             item { ListHeader { Text(listName) } }
             item {
                 CompactChip(
@@ -318,7 +348,6 @@ fun TaskListScreen(api: MicrosoftTodoApi, token: String, listId: String, listNam
     }
 }
 
-// 弹窗代码
 @Composable
 fun CompactAddTaskDialog(context: Context, onDismiss: () -> Unit, onConfirm: (String, String?, String) -> Unit) {
     var title by remember { mutableStateOf("") }

@@ -1,21 +1,31 @@
-# Add project specific ProGuard rules here.
-# You can control the set of applied configuration files using the
-# proguardFiles setting in build.gradle.
-#
-# For more details, see
-#   http://developer.android.com/guide/developing/tools/proguard.html
+# =================================================
+# RoundToDo 混淆规则终极版
+# =================================================
 
-# If your project uses WebView with JS, uncomment the following
-# and specify the fully qualified class name to the JavaScript interface
-# class:
-#-keepclassmembers class fqcn.of.javascript.interface.for.webview {
-#   public *;
-#}
+# --- 1. 核心：忽略 MSAL 及其引用库的警告 ---
+-dontwarn com.microsoft.identity.**
+-keep class com.microsoft.identity.** { *; }
 
-# Uncomment this to preserve the line number information for
-# debugging stack traces.
-#-keepattributes SourceFile,LineNumberTable
+# --- 2. 忽略日志监控库 (OpenTelemetry) ---
+-dontwarn io.opentelemetry.**
 
-# If you keep the line number information, uncomment this to
-# hide the original source file name.
-#-renamesourcefileattribute SourceFile
+# --- 3. 忽略加密相关库 (Tink, Nimbus) ---
+-dontwarn com.google.crypto.tink.**
+-dontwarn com.nimbusds.**
+
+# --- 4. ★★★ 新增：忽略 YubiKey 硬件密钥库 ★★★ ---
+-dontwarn com.yubico.**
+
+# --- 5. ★★★ 新增：忽略 FindBugs 注解库 ★★★ ---
+-dontwarn edu.umd.cs.findbugs.**
+
+# --- 6. 忽略谷歌自动生成代码 (AutoValue) ---
+-dontwarn com.google.auto.value.**
+
+# --- 7. 预防性忽略其他常见报错 ---
+-dontwarn net.jcip.annotations.**
+-dontwarn javax.annotation.**
+-dontwarn org.apache.http.**
+-dontwarn android.net.http.**
+-dontwarn java.nio.file.**
+-dontwarn org.codehaus.mojo.animal_sniffer.IgnoreJRERequirement

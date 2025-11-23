@@ -6,38 +6,62 @@ plugins {
 
 android {
     namespace = "com.round.todo"
-    compileSdk {
-        version = release(36)
-    }
+    compileSdk = 34
 
     defaultConfig {
         applicationId = "com.round.todo"
-        minSdk = 26
-        targetSdk = 36
+        minSdk = 30 // Wear OS 3.0+ (Android 11)
+        targetSdk = 34
         versionCode = 1
         versionName = "1.0"
+        vectorDrawables {
+            useSupportLibrary = true
+        }
+    }
 
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    // ★★★ 新增部分：配置签名信息 ★★★
+    signingConfigs {
+        create("release") {
+            // 注意：这里填你之前生成 jks 文件的路径
+            // 如果是在项目根目录，直接写文件名；如果在其他地方，要写全路径
+            // 为了方便，建议你把 roundtodo.jks 复制到 app 文件夹下
+            storeFile = file("../roundtodo.jks")
+            storePassword = "123456" // 比如 123456
+            keyAlias = "key0"
+            keyPassword = "123456" // 比如 123456
+        }
     }
 
     buildTypes {
         release {
-            isMinifyEnabled = false
-            proguardFiles(
-                getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro"
-            )
+            isMinifyEnabled = true // 开启混淆，减小体积
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            signingConfig = signingConfigs.getByName("release") // 使用正式签名
+        }
+        debug {
+            // ★★★ 关键点：让调试版也使用正式签名 ★★★
+            signingConfig = signingConfigs.getByName("release")
         }
     }
+
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_11
-        targetCompatibility = JavaVersion.VERSION_11
+        sourceCompatibility = JavaVersion.VERSION_1_8
+        targetCompatibility = JavaVersion.VERSION_1_8
     }
     kotlinOptions {
-        jvmTarget = "11"
+        jvmTarget = "1.8"
     }
     buildFeatures {
         compose = true
+    }
+    composeOptions {
+        kotlinCompilerExtensionVersion = "1.5.1"
+    }
+    packaging {
+        resources {
+            excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        }
     }
 }
 
@@ -94,4 +118,6 @@ dependencies {
     implementation("androidx.compose.material:material-icons-extended:1.6.0")
 
     implementation("androidx.compose.material:material:1.6.0")
+
+    implementation("androidx.compose.foundation:foundation:1.6.0")
 }
