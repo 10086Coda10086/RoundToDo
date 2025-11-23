@@ -1,7 +1,8 @@
 # RoundToDo (for Microsoft To Do)
 
 <p align="center">
-  <img width="100" height="100" alt="Generated Image November 22, 2025 - 11_10PM" src="https://github.com/user-attachments/assets/9d1afe0a-e8d2-447f-9752-e72e1dc41805" />
+  <img width="110" height="110" alt="Generated Image November 23, 2025 - 10_08AM" src="https://github.com/user-attachments/assets/4b8f2b29-d63f-44f6-9199-f83ead5ab742" />
+
 </p>
 
 <p align="center">
